@@ -57,3 +57,96 @@ variable "azure_subscription_id" {
   type        = string
   sensitive   = true
 }
+
+# IAM / Entra ID
+variable "eks_oidc_provider_arn" {
+  description = "ARN of the EKS OIDC provider for IRSA"
+  type        = string
+  default     = ""
+}
+
+variable "eks_oidc_issuer" {
+  description = "OIDC issuer URL for the EKS cluster (without https://)"
+  type        = string
+  default     = ""
+}
+
+variable "app_namespace" {
+  description = "Kubernetes namespace for the application service account"
+  type        = string
+  default     = "default"
+}
+
+variable "app_service_account" {
+  description = "Kubernetes service account name for the application"
+  type        = string
+  default     = "app"
+}
+
+variable "kms_key_arn" {
+  description = "ARN of the KMS key used for app data encryption"
+  type        = string
+  default     = ""
+}
+
+variable "kyc_bucket_name" {
+  description = "S3 bucket name for KYC document storage"
+  type        = string
+  default     = ""
+}
+
+variable "security_auditor_principal_arn" {
+  description = "ARN of the principal allowed to assume the security auditor role"
+  type        = string
+  default     = ""
+}
+
+variable "github_org" {
+  description = "GitHub organisation name for OIDC trust"
+  type        = string
+  default     = ""
+}
+
+variable "github_repo" {
+  description = "GitHub repository name for OIDC trust"
+  type        = string
+  default     = ""
+}
+
+# WAF
+variable "waf_log_destination_arn" {
+  description = "ARN of the Kinesis Firehose delivery stream for WAF logs"
+  type        = string
+  default     = ""
+}
+
+# Azure resource scopes
+variable "subscription_id" {
+  description = "Azure subscription resource ID (/subscriptions/...)"
+  type        = string
+  default     = ""
+}
+
+variable "network_resource_group_id" {
+  description = "Resource ID of the Azure network resource group"
+  type        = string
+  default     = ""
+}
+
+variable "compute_resource_group_id" {
+  description = "Resource ID of the Azure compute resource group"
+  type        = string
+  default     = ""
+}
+
+variable "acr_id" {
+  description = "Resource ID of the Azure Container Registry"
+  type        = string
+  default     = ""
+}
+
+variable "log_analytics_workspace_id" {
+  description = "Resource ID of the Log Analytics workspace for diagnostic settings"
+  type        = string
+  default     = ""
+}
