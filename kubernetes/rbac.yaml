@@ -1,0 +1,188 @@
+# Kubernetes RBAC — aligned with cloud IAM roles defined in terraform/aws/iam.tf
+# and terraform/azure/entra_id.tf.
+#
+# Groups are provisioned via:
+#   AWS: aws-auth ConfigMap maps IAM roles to these groups
+#   Azure: AKS AAD integration maps Entra ID groups to these groups
+
+---
+# Namespace for production workloads
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production
+  labels:
+    environment: production
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: staging
+  labels:
+    environment: staging
+---
+# ---------------------------------------------------------------------------
+# ClusterRole: read-only view of all resources (security auditors)
+# ---------------------------------------------------------------------------
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: security-auditor
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints", "namespaces", "nodes", "configmaps", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies", "ingresses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["policy"]
+    resources: ["podsecuritypolicies", "poddisruptionbudgets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: security-auditor-binding
+subjects:
+  - kind: Group
+    # AWS: IAM role ARN mapped in aws-auth ConfigMap as group "security-auditors"
+    # Azure: Entra ID group mapped via AKS AAD integration
+    name: security-auditors
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: security-auditor
+  apiGroup: rbac.authorization.k8s.io
+---
+# ---------------------------------------------------------------------------
+# ClusterRole: platform engineer — cluster-wide ops, no secrets read
+# ---------------------------------------------------------------------------
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: platform-engineer
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "namespaces", "persistentvolumes"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "pods/exec"]
+    verbs: ["get", "list", "watch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies", "ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Explicitly no access to secrets at cluster level
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: platform-engineer-binding
+subjects:
+  - kind: Group
+    name: platform-engineers
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: platform-engineer
+  apiGroup: rbac.authorization.k8s.io
+---
+# ---------------------------------------------------------------------------
+# Role: app developer — scoped to production namespace, no secret access
+# ---------------------------------------------------------------------------
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: app-developer
+  namespace: production
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services", "configmaps", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: app-developer-binding
+  namespace: production
+subjects:
+  - kind: Group
+    name: app-developers
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: app-developer
+  apiGroup: rbac.authorization.k8s.io
+---
+# ---------------------------------------------------------------------------
+# ServiceAccount: application workload identity
+# Used with IRSA (AWS) and Workload Identity (Azure)
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: app-service-account
+  namespace: production
+  annotations:
+    # AWS IRSA: IAM role ARN provisioned in terraform/aws/iam.tf
+    eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/clearpay-prod-app-service-SUFFIX"
+    # Azure Workload Identity: client ID of the managed identity
+    azure.workload.identity/client-id: "AZURE_CLIENT_ID"
+automountServiceAccountToken: false
+---
+# ServiceAccount for the secrets store CSI sync job
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: secrets-store-sa
+  namespace: production
+automountServiceAccountToken: false
+---
+# Allow the CSI driver's service account to sync secrets into the namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: secrets-store-sync
+  namespace: production
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: secrets-store-sync-binding
+  namespace: production
+subjects:
+  - kind: ServiceAccount
+    name: secrets-store-sa
+    namespace: production
+roleRef:
+  kind: Role
+  name: secrets-store-sync
+  apiGroup: rbac.authorization.k8s.io
+---
+# ---------------------------------------------------------------------------
+# PodSecurityStandard — enforce restricted baseline in production
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
